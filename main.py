@@ -9,14 +9,15 @@ from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from tabulate import tabulate
-# install pandas, sklearn, statsmodels, xgboost, tabulate
+# install pandas, sklearn, statsmodels, xgboost, tabulate, ipykernel
 
 # DATA PREPROCESSING
 # read in the raw data
 raw_data = pd.read_csv(os.getcwd() + '\insurance_claims.csv')
 print(raw_data.head())
-# replace all missing data with NAN
+# replace all missing data with NAN and convert the fraud_reported column to binary
 raw_data.replace('?', np.nan, inplace = True)
+raw_data['fraud_reported'] = raw_data['fraud_reported'].map({'Y': 1, 'N': 0})
 
 # the columns that are missing data are collision_type, property_damage and police_report_available
 # taking a look at the data, collision_type is missing for all rows where the incident_type is either vehicle theft or parked car
@@ -48,7 +49,7 @@ baseline_X = raw_data.copy()
 baseline_X.drop(non_numerical_cols, inplace=True, axis=1)
 # the target variable fraud_reported is also dropped and the values are mapped to 1 & 0 corresponding to whether the instance was a case of fraud
 baseline_X = baseline_X.drop('fraud_reported', axis=1)
-y = raw_data['fraud_reported'].map({'Y': 1, 'N': 0})
+y = raw_data['fraud_reported']
 # the data is divided into a 70/30 split
 train_bl_X, val_bl_X, train_bl_y, val_bl_y = train_test_split(baseline_X, y, test_size=0.25)
 # the baseline model is defined, fit and the accuracy score is recorded to be referenced later
@@ -112,7 +113,6 @@ rf_model = RandomForestClassifier(random_state=0)
 gb_model = GradientBoostingClassifier(random_state=0)
 xgb_model = XGBClassifier(random_state=0)
 knn_model = KNeighborsClassifier()
-all_models = {'Decision Tree': dt_model, 'Random Forest': rf_model, 'Gradient Boost': gb_model, 'XG Boost': xgb_model, 'K Nearest Neighbours': knn_model}
 
 dt_params = {'max_depth': [3, 5, 10, 15, 20],
              'min_samples_leaf': [5, 10, 20, 50, 100]}
@@ -156,12 +156,22 @@ print("-----------------------------------------------------")
 # the best scoring model is then used to make predicitons for the validation data and the accuracy is stored
 for key, items in all_models.items():
     print("Training " + key + " Model...")
-    model = items[0]
-    params = items[1]
+    [model, params] = items[0], items[1]
     [best_model, best_score] = evaluate_grid_search_cv(model, params, k_folds, X, y)
-    items.extend([str(best_model), best_score])
+    items.extend([str(best_model), best_score, best_model])
 
 # display each algorithm with its best performing model, training accuracy and validation accuracy
-best_score_df = pd.DataFrame.from_dict(data=all_models, orient='index', columns=['Model', 'Parameters', 'Best Model', 'Best Average Accuracy'])
-best_score_df.loc["Baseline Model"] = [str(baseline_model), None, str(baseline_model), baseline_score]
-print(tabulate(best_score_df[['Best Model', 'Best Average Accuracy']].sort_values(by='Best Average Accuracy', ascending=False), headers='keys', tablefmt='fancy_grid'))
+best_score_df = pd.DataFrame.from_dict(data=all_models, orient='index', columns=['Model', 'Parameters', 'Best Model Label', 'Best Average Accuracy', 'Best Model'])
+best_score_df.loc["Baseline Model"] = [str(baseline_model), None, str(baseline_model), baseline_score, baseline_model]
+print(tabulate(best_score_df[['Best Model Label', 'Best Average Accuracy']].sort_values(by='Best Average Accuracy', ascending=False), headers='keys', tablefmt='fancy_grid'))
+
+# display the total amount of all claims, actual fraudulent claims and predicted fraudulent claims
+optimal_row= best_score_df['Best Average Accuracy'].idxmax()
+optimal_model = best_score_df.loc[optimal_row]['Best Model']
+optimal_preds = optimal_model.predict(X)
+raw_data['predicted_fraud'] = optimal_preds
+total_fraud_amount = raw_data[raw_data['fraud_reported'] == 1]['total_claim_amount'].sum()
+predicted_fraud_amount = raw_data[raw_data['predicted_fraud'] == 1]['total_claim_amount'].sum()
+print("Total claim amount: $" + str(raw_data['total_claim_amount'].sum()))
+print("Total claim amount of actual fraudulent claims: $" + str(total_fraud_amount))
+print("Total claim amount of predicted fraudulent claims: $" + str(predicted_fraud_amount))
